@@ -1,33 +1,42 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import Cookies from "js-cookie";
 
-const DataCtx = createContext();
+const DataContext = createContext(null);
+export const useData = () => useContext(DataContext);
+
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8080";
 
 export function DataProvider({ children }) {
   const [tools, setTools] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    (async () => {
+    const fetchTools = async () => {
       try {
-        const base = import.meta.env.VITE_API_BASE;
-        const res = await fetch(`${base}/api/tools`);
-        if (!res.ok) throw new Error(`API error: ${res.status}`);
+        setLoading(true);
+        const idToken = Cookies.get("idToken");
+
+        const res = await fetch(`${API_BASE}/api/tools`, {
+          headers: idToken ? { Authorization: `Bearer ${idToken}` } : {}
+        });
+
         const data = await res.json();
         setTools(data);
+        setError("");
       } catch (e) {
-        setError(e.message);
+        setError(e.message || "Failed to load tools");
       } finally {
         setLoading(false);
       }
-    })();
+    };
+
+    fetchTools();
   }, []);
 
   return (
-    <DataCtx.Provider value={{ tools, loading, error }}>
+    <DataContext.Provider value={{ tools, loading, error }}>
       {children}
-    </DataCtx.Provider>
+    </DataContext.Provider>
   );
 }
-
-export const useData = () => useContext(DataCtx);
