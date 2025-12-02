@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { DataProvider } from "./context/DataContext.jsx";
 import { FiltersProvider } from "./context/FiltersContext.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
@@ -8,6 +8,12 @@ import Details from "./pages/Details.jsx";
 import Overview from "./pages/Overview.jsx";
 import ToolDetails from "./pages/ToolDetails.jsx";
 import AuthPage from "./pages/Auth.jsx";
+
+function RedirectToDetails() {
+  const location = useLocation();
+  // preserve query string (HashRouter keeps it in hash)
+  return <Navigate to={`/details${location.search || ""}`} replace />;
+}
 
 export default function App() {
   return (
@@ -21,7 +27,7 @@ export default function App() {
               path="/"
               element={
                 <ProtectedRoute>
-                  <Navigate to="/details" />
+                  <RedirectToDetails />
                 </ProtectedRoute>
               }
             />
@@ -51,7 +57,7 @@ export default function App() {
               }
             />
 
-            <Route path="*" element={<Navigate to="/details" />} />
+            <Route path="*" element={<Navigate to="/details" replace />} />
           </Routes>
         </FiltersProvider>
       </DataProvider>
