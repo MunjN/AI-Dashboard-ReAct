@@ -5,6 +5,7 @@ import applyFilters from "../lib/applyFilters.js";
 import { countByMulti, toChartData } from "../lib/aggregate.js";
 import LeftRail from "../components/LeftRail.jsx";
 import FilterModal from "../components/FilterModal.jsx";
+import BookmarkModal from "../components/BookmarkModal.jsx"; // ✅ NEW
 import BarBlock from "../components/charts/BarBlock.jsx";
 import ToolsTable from "../components/ToolsTable.jsx";
 
@@ -12,6 +13,7 @@ export default function Details() {
   const { tools, loading, error } = useData();
   const { filters } = useFilters();
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [bookmarksOpen, setBookmarksOpen] = useState(false); // ✅ NEW
   const [tableView, setTableView] = useState("tech"); // tech | biz
 
   const filtered = useMemo(() => applyFilters(tools, filters), [tools, filters]);
@@ -39,6 +41,7 @@ export default function Details() {
         infraCount={infraCount}
         parentOrgCount={parentOrgCount}
         onOpenFilters={() => setFiltersOpen(true)}
+        onOpenBookmarks={() => setBookmarksOpen(true)} // ✅ NEW
         onSwitchView={() => setTableView(v => v === "tech" ? "biz" : "tech")}
         viewLabel={tableView === "tech" ? "Technology & Capability" : "Business & Governance"}
       />
@@ -62,6 +65,9 @@ export default function Details() {
       </div>
 
       <FilterModal open={filtersOpen} onClose={() => setFiltersOpen(false)} allRows={tools} />
+
+      {/* ✅ NEW modal */}
+      <BookmarkModal open={bookmarksOpen} onClose={() => setBookmarksOpen(false)} />
     </div>
   );
 }
