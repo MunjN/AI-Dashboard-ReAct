@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useNavigate } from "react-router-dom";
 
 export default function AuthPage() {
   const { signUp, verify, signIn, status, setStatus } = useAuth();
+  const navigate = useNavigate();
 
   const [tab, setTab] = useState("login");
   const [pendingEmail, setPendingEmail] = useState("");
@@ -19,7 +21,10 @@ export default function AuthPage() {
   const onLogin = async (e) => {
     e.preventDefault();
     try {
-      await signIn(loginForm);
+      const ok = await signIn(loginForm);
+
+      // ✅ if approved + logged in, go to dashboard
+      if (ok) navigate("/details");
     } catch (err) {
       setStatus(err.message || "Login failed");
     }
