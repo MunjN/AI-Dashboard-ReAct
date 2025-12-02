@@ -1,193 +1,143 @@
 import { useMemo, useState } from "react";
-import { useData } from "../context/DataContext.jsx";
-import { useFilters } from "../context/FiltersContext.jsx";
-import applyFilters from "../lib/applyFilters.js";
-import { countBy, countUniqueBy, toChartData } from "../lib/aggregate.js";
 import LeftRail from "../components/LeftRail.jsx";
 import FilterModal from "../components/FilterModal.jsx";
+import BookmarkModal from "../components/BookmarkModal.jsx";
+
 import BarBlock from "../components/charts/BarBlock.jsx";
 import LineBlock from "../components/charts/LineBlock.jsx";
 import PieBlock from "../components/charts/PieBlock.jsx";
-import VennBlock from "../components/VennBlock.jsx";
+
+import { useData } from "../context/DataContext.jsx";
+import { useFilters } from "../context/FiltersContext.jsx";
+import { applyFilters } from "../lib/applyFilters.js";
+import { countBy, countByMulti, toChartData } from "../lib/aggregate.js";
 
 export default function Overview() {
   const { tools, loading, error } = useData();
-  const { filters, setFilters } = useFilters();
+  const { filters } = useFilters();
+
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [bookmarksOpen, setBookmarksOpen] = useState(false);
 
-  const filtered = useMemo(() => applyFilters(tools, filters), [tools, filters]);
-
-  const infraCount = useMemo(
-    () => new Set(filtered.map(r => r.infraName).filter(Boolean)).size,
-    [filtered]
-  );
-  const parentOrgCount = useMemo(
-    () => new Set(filtered.map(r => r.parentOrg).filter(Boolean)).size,
-    [filtered]
+  const filtered = useMemo(
+    () => applyFilters(tools, filters),
+    [tools, filters]
   );
 
-  // --- Aggregations ---
-  const providersByFunding = useMemo(() => {
-    const kv = countUniqueBy(filtered, r => r.fundingType, r => r.parentOrg);
-    return toChartData(kv, "funding");
-  }, [filtered]);
+  // ---- Example overview aggregations (same as before) ----
+  const byFunding = useMemo(
+    () => toChartData(countBy(filtered, r => r.fundingType), "fundingType"),
+    [filtered]
+  );
 
-  const toolsByFM = useMemo(() => {
-    const kv = countBy(filtered, r => r.foundationalModel);
-    return toChartData(kv, "fm");
-  }, [filtered]);
+  const byOrgMaturity = useMemo(
+    () => toChartData(countBy(filtered, r => r.orgMaturity), "orgMaturity"),
+    [filtered]
+  );
 
-  const toolsLaunchedByYear = useMemo(() => {
-    const kv = countBy(filtered, r => r.yearLaunched);
-    return toChartData(kv, "year");
-  }, [filtered]);
+  const byCompanyFounded = useMemo(
+    () =>
+      toChartData(
+        countBy(filtered, r => r.yearCompanyFounded),
+        "yearCompanyFounded"
+      ),
+    [filtered]
+  );
 
-  const companiesFoundedByYear = useMemo(() => {
-    const kv = countUniqueBy(filtered, r => r.yearCompanyFounded, r => r.parentOrg);
-    return toChartData(kv, "year");
-  }, [filtered]);
-
-  const ipPotential = useMemo(() => {
-    const kv = countBy(filtered, r => r.ipCreationPotential);
-    return toChartData(kv, "ip");
-  }, [filtered]);
-
-  const toolsByInference = useMemo(() => {
-    const kv = countBy(filtered, r => r.inferenceLocation);
-    return toChartData(kv, "inf");
-  }, [filtered]);
-
-  const providersByMaturity = useMemo(() => {
-    const kv = countUniqueBy(filtered, r => r.orgMaturity, r => r.parentOrg);
-    return toChartData(kv, "mat");
-  }, [filtered]);
-
-  // --- Venn numbers + buckets from FULL dataset (not filtered)
-  const venn = useMemo(() => {
-    const allVals = [...new Set(tools.map(t => t.softwareType).filter(Boolean))];
-
-    const cloudVals = [];
-    const desktopVals = [];
-    const bothVals = [];
-
-    allVals.forEach(v => {
-      const s = String(v).toLowerCase();
-      const hasCloud = s.includes("cloud");
-      const hasDesktop = s.includes("desktop");
-
-      if (hasCloud && hasDesktop) bothVals.push(v);
-      else if (hasCloud) cloudVals.push(v);
-      else if (hasDesktop) desktopVals.push(v);
-    });
-
-    let cloudOnly = 0, desktopOnly = 0, both = 0;
-    filtered.forEach(r => {
-      const s = String(r.softwareType || "").toLowerCase();
-      const hasCloud = s.includes("cloud");
-      const hasDesktop = s.includes("desktop");
-      if (hasCloud && hasDesktop) both += 1;
-      else if (hasCloud) cloudOnly += 1;
-      else if (hasDesktop) desktopOnly += 1;
-    });
-
-    return { cloudOnly, desktopOnly, both, cloudVals, desktopVals, bothVals };
-  }, [tools, filtered]);
-
-  const toggleSoftwareBucket = (bucketVals) => {
-    setFilters(prev => {
-      const cur = prev.softwareType || [];
-      const hasAny = bucketVals.some(v => cur.includes(v));
-      const next = hasAny
-        ? cur.filter(v => !bucketVals.includes(v))  // remove bucket
-        : [...new Set([...cur, ...bucketVals])];   // add bucket
-      return { ...prev, softwareType: next.length ? next : null };
-    });
-  };
+  const byBusinessModel = useMemo(
+    () =>
+      toChartData(
+        countByMulti(filtered, r => r.businessModel || []),
+        "businessModel"
+      ),
+    [filtered]
+  );
 
   if (loading) return <div className="p-6">Loading…</div>;
   if (error) return <div className="p-6 text-red-600">{error}</div>;
 
   return (
-    <div className="min-h-screen bg-white px-6 pt-6 flex items-start gap-6">
+    <div className="flex min-h-screen bg-slate-50">
       <LeftRail
-        infraCount={infraCount}
-        parentOrgCount={parentOrgCount}
         onOpenFilters={() => setFiltersOpen(true)}
-        onSwitchView={() => {}}
-        viewLabel="Overview"
+        onOpenBookmarks={() => setBookmarksOpen(true)}
       />
 
-      <div className="flex-1 space-y-6">
-        {/* Top row */}
-        <div className="grid grid-cols-2 gap-6">
-          <BarBlock
-            title="Provider Orgs – Types of Funding"
-            data={providersByFunding}
-            xKey="funding"
-            filterKey="fundingType"
-          />
-          <BarBlock
-            title="Tools by Foundational Model"
-            data={toolsByFM}
-            xKey="fm"
-            filterKey="foundationalModel"
-          />
+      <main className="flex-1 p-6 space-y-6">
+        {/* Top header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-blue-950">
+              Overview
+            </h1>
+            <div className="text-sm text-blue-900/70">
+              Presented by ME-DMZ
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => setFiltersOpen(true)}
+              className="px-4 py-2 rounded-lg bg-blue-700 text-white text-sm hover:bg-blue-800"
+            >
+              Filters
+            </button>
+            <button
+              onClick={() => setBookmarksOpen(true)}
+              className="px-4 py-2 rounded-lg bg-blue-100 text-blue-900 text-sm hover:bg-blue-200"
+            >
+              ⭐ Bookmarks
+            </button>
+          </div>
         </div>
 
-        {/* Middle row */}
-        <div className="grid grid-cols-2 gap-6">
-          <LineBlock
-            title="Tools Launched by Year"
-            data={toolsLaunchedByYear}
-            xKey="year"
-            filterKey={null}   // keep blue but don't break range filters
-          />
-          <LineBlock
-            title="Companies Founded by Year"
-            data={companiesFoundedByYear}
-            xKey="year"
-            filterKey={null}
-          />
-        </div>
-
-        {/* Bottom row */}
-        <div className="grid grid-cols-4 gap-6">
-          <PieBlock
-            title="IP Creation Potential"
-            data={ipPotential}
-            labelKey="ip"
-            filterKey="ipCreationPotential"
+        {/* Charts */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <BarBlock
+            title="Tools by Funding Type"
+            data={byFunding}
+            xKey="fundingType"
+            yKey="count"
           />
           <BarBlock
-            title="Tools by Inference Location"
-            data={toolsByInference}
-            xKey="inf"
-            filterKey="inferenceLocation"
-            horizontalLabels
-          />
-          <VennBlock
-            title="Tools by Software Type"
-            cloudOnly={venn.cloudOnly}
-            desktopOnly={venn.desktopOnly}
-            both={venn.both}
-            onClickCloud={() => toggleSoftwareBucket(venn.cloudVals)}
-            onClickDesktop={() => toggleSoftwareBucket(venn.desktopVals)}
-            onClickBoth={() => toggleSoftwareBucket(venn.bothVals)}
+            title="Tools by Org Maturity"
+            data={byOrgMaturity}
+            xKey="orgMaturity"
+            yKey="count"
           />
           <PieBlock
-            title="Providers by Maturity"
-            data={providersByMaturity}
-            labelKey="mat"
-            filterKey="orgMaturity"
+            title="Tools by Business Model"
+            data={byBusinessModel}
+            nameKey="businessModel"
+            valueKey="count"
           />
         </div>
-      </div>
 
-      <FilterModal
-        open={filtersOpen}
-        onClose={() => setFiltersOpen(false)}
-        allRows={tools}
-      />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <LineBlock
+            title="Companies by Year Founded"
+            data={byCompanyFounded}
+            xKey="yearCompanyFounded"
+            yKey="count"
+          />
+
+          <div className="bg-white rounded-2xl shadow-sm border p-6">
+            <div className="text-lg font-bold text-blue-950 mb-2">
+              Total Tools
+            </div>
+            <div className="text-4xl font-extrabold text-blue-800">
+              {filtered.length}
+            </div>
+            <div className="text-sm text-slate-600 mt-2">
+              Based on current filters
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* Modals */}
+      <FilterModal open={filtersOpen} onClose={() => setFiltersOpen(false)} />
+      <BookmarkModal open={bookmarksOpen} onClose={() => setBookmarksOpen(false)} />
     </div>
   );
 }
