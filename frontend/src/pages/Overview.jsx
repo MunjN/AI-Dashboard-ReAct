@@ -5,6 +5,7 @@ import applyFilters from "../lib/applyFilters.js";
 import { countBy, countUniqueBy, toChartData } from "../lib/aggregate.js";
 import LeftRail from "../components/LeftRail.jsx";
 import FilterModal from "../components/FilterModal.jsx";
+import BookmarkModal from "../components/BookmarkModal.jsx"; // ✅ NEW
 import BarBlock from "../components/charts/BarBlock.jsx";
 import LineBlock from "../components/charts/LineBlock.jsx";
 import PieBlock from "../components/charts/PieBlock.jsx";
@@ -14,6 +15,7 @@ export default function Overview() {
   const { tools, loading, error } = useData();
   const { filters, setFilters } = useFilters();
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [bookmarksOpen, setBookmarksOpen] = useState(false); // ✅ NEW
 
   const filtered = useMemo(() => applyFilters(tools, filters), [tools, filters]);
 
@@ -113,6 +115,7 @@ export default function Overview() {
         infraCount={infraCount}
         parentOrgCount={parentOrgCount}
         onOpenFilters={() => setFiltersOpen(true)}
+        onOpenBookmarks={() => setBookmarksOpen(true)} // ✅ NEW
         onSwitchView={() => {}}
         viewLabel="Overview"
       />
@@ -188,6 +191,9 @@ export default function Overview() {
         onClose={() => setFiltersOpen(false)}
         allRows={tools}
       />
+
+      {/* ✅ NEW modal */}
+      <BookmarkModal open={bookmarksOpen} onClose={() => setBookmarksOpen(false)} />
     </div>
   );
 }
