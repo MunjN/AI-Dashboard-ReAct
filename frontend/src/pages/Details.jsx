@@ -7,7 +7,7 @@ import ToolsTable from "../components/ToolsTable.jsx";
 import BarBlock from "../components/charts/BarBlock.jsx";
 import LineBlock from "../components/charts/LineBlock.jsx";
 import PieBlock from "../components/charts/PieBlock.jsx";
-import VennBlock from "../components/charts/VennBlock.jsx";
+import VennBlock from "../components/VennBlock.jsx"; 
 
 import { useData } from "../context/DataContext.jsx";
 import { useFilters } from "../context/FiltersContext.jsx";
@@ -20,15 +20,13 @@ export default function Details() {
 
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [bookmarksOpen, setBookmarksOpen] = useState(false);
-
-  const [tableView, setTableView] = useState("tech"); // "tech" | "biz"
+  const [tableView, setTableView] = useState("tech");
 
   const filtered = useMemo(
     () => applyFilters(tools, filters),
     [tools, filters]
   );
 
-  // ---- Example aggregations (same as before) ----
   const bySoftwareType = useMemo(
     () => toChartData(countBy(filtered, r => r.softwareType), "softwareType"),
     [filtered]
@@ -66,7 +64,6 @@ export default function Details() {
       />
 
       <main className="flex-1 p-6 space-y-6">
-        {/* Top header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-blue-950">
@@ -93,7 +90,6 @@ export default function Details() {
           </div>
         </div>
 
-        {/* Charts row 1 */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <BarBlock
             title="Tools by Software Type"
@@ -115,7 +111,6 @@ export default function Details() {
           />
         </div>
 
-        {/* Charts row 2 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <LineBlock
             title="Tools by Year Launched"
@@ -126,7 +121,6 @@ export default function Details() {
           <VennBlock title="Venn Breakdown" rows={vennRows} />
         </div>
 
-        {/* Table toggle */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => setTableView("tech")}
@@ -153,11 +147,9 @@ export default function Details() {
           </div>
         </div>
 
-        {/* Big tools table */}
         <ToolsTable rows={filtered} view={tableView} />
       </main>
 
-      {/* Modals */}
       <FilterModal open={filtersOpen} onClose={() => setFiltersOpen(false)} />
       <BookmarkModal open={bookmarksOpen} onClose={() => setBookmarksOpen(false)} />
     </div>
