@@ -8,6 +8,7 @@ import Details from "./pages/Details.jsx";
 import Overview from "./pages/Overview.jsx";
 import ToolDetails from "./pages/ToolDetails.jsx";
 import AuthPage from "./pages/Auth.jsx";
+import AdminStats from "./pages/AdminStats.jsx"; // ✅ NEW
 
 function RedirectToDetails() {
   const location = useLocation();
@@ -53,6 +54,16 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <ToolDetails />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* ✅ NEW: internal stats page */}
+            <Route
+              path="/stats"
+              element={
+                <ProtectedRoute>
+                  <AdminStats />
                 </ProtectedRoute>
               }
             />
