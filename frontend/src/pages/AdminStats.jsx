@@ -175,7 +175,7 @@ export default function AdminStats() {
         </div>
 
         <div className="text-xs text-blue-900/60 mt-2">
-          (Keeping it minimal for now — we can add a real line chart later if you want.)
+          (Keeping it minimal for now — we can add a few visuals later if Chris wants.)
         </div>
       </div>
     </div>
