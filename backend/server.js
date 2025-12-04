@@ -1,12 +1,158 @@
+// // import express from "express";
+// // import cors from "cors";
+// // import csv from "csvtojson";
+// // import path from "path";
+// // import { fileURLToPath } from "url";
+
+// // const app = express();
+// // app.use(cors());
+// // app.use(express.json());
+
+// // const __filename = fileURLToPath(import.meta.url);
+// // const __dirname = path.dirname(__filename);
+
+// // const DATA_PATH = path.join(__dirname, "data", "tools.csv");
+
+// // let toolsCache = [];
+
+// // const toList = (v) => {
+// //   if (!v) return [];
+// //   if (Array.isArray(v)) return v;
+
+// //   const s = String(v).trim();
+// //   if (!s) return [];
+
+// //   // handles JSON array strings like '["A","B"]'
+// //   if (s.startsWith("[") && s.endsWith("]")) {
+// //     try {
+// //       const arr = JSON.parse(s);
+// //       if (Array.isArray(arr)) {
+// //         return arr.map(x => String(x).trim()).filter(Boolean);
+// //       }
+// //     } catch {
+// //       // fall through
+// //     }
+// //   }
+
+// //   // handles comma, pipe, semicolon separated values
+// //   return s.split(/[,|;]/).map(x => x.trim()).filter(Boolean);
+// // };
+
+// // const toBool = (v) => {
+// //   if (v === true || v === false) return v;
+// //   const s = String(v || "").trim().toLowerCase();
+// //   if (["yes", "y", "true", "1"].includes(s)) return true;
+// //   if (["no", "n", "false", "0"].includes(s)) return false;
+// //   return null;
+// // };
+
+// // const toNum = (v) => {
+// //   const n = Number(String(v || "").replace(/[^\d.-]/g, ""));
+// //   return Number.isFinite(n) ? n : null;
+// // };
+
+// // // Flexible getter: tries multiple possible header names
+// // const pick = (row, keys, fallback = null) => {
+// //   for (const k of keys) {
+// //     if (row[k] != null && String(row[k]).trim() !== "") return row[k];
+// //   }
+// //   return fallback;
+// // };
+
+// // async function loadData() {
+// //   const rows = await csv().fromFile(DATA_PATH);
+
+// //   toolsCache = rows.map((r) => {
+// //     const toolName = pick(r, ["NAME", "Tool Name", "toolName", "tool_name", "Name"]);
+// //     const infraName = pick(
+// //       r,
+// //       ["INFRA_NAME", "Infra Name", "infraName", "infra_name", "NAME", "Tool Name"],
+// //       toolName
+// //     );
+// //     const parentOrg = pick(
+// //       r,
+// //       ["PARENT_ORGANIZATION", "Parent Org", "parentOrg", "parent_org", "Provider Org"]
+// //     );
+
+// //     return {
+// //       // Technology
+// //       toolName,
+// //       infraName,
+// //       tasks: toList(pick(r, ["TASKS", "Tasks", "tasks"])),
+// //       softwareType: pick(r, ["SOFTWARE_TYPE", "Software Type", "softwareType", "software_type"]),
+// //       expectedInput: toList(pick(r, ["EXPECTED_INPUT", "Expected Input", "expectedInput", "expected_input"])),
+// //       generatedOutput: toList(pick(r, ["GENERATED_OUTPUT", "Generated Output", "generatedOutput", "generated_output"])),
+// //       modelType: pick(r, ["MODEL_PRIVATE_OR_PUBLIC", "Model Type", "modelType", "model_type"]),
+// //       foundationalModel: pick(r, ["FOUNDATIONAL_MODEL", "Foundational Model", "foundationalModel", "foundational_model"]),
+// //       inferenceLocation: pick(r, ["INFERENCE_LOCATION", "Inference Location", "inferenceLocation", "inference_location"]),
+// //       hasApi: toBool(pick(r, ["HAS_API", "Has API", "hasApi", "has_api"])),
+// //       yearLaunched: toNum(pick(r, ["YEAR_LAUNCHED", "Year Launched", "yearLaunched", "year_launched"])),
+
+// //       // Business
+// //       parentOrg,
+// //       orgMaturity: pick(r, ["ORGANIZATION_MATURITY", "Org Maturity", "orgMaturity", "org_maturity", "Maturity"]),
+// //       fundingType: pick(r, ["FUNDING", "Funding", "fundingType", "funding_type", "Funding Type"]),
+// //       businessModel: pick(r, ["BUSINESS_MODEL", "Business Model", "businessModel", "business_model"]),
+// //       ipCreationPotential: pick(r, ["POTENTIAL_FOR_IP", "Potential for IP Creation", "ipCreationPotential", "ip_creation_potential"]),
+// //       yearCompanyFounded: toNum(pick(r, ["YEAR_COMPANY_FOUNDED", "Year Company Founded", "yearCompanyFounded", "year_company_founded"])),
+// //       legalCasePending: toBool(pick(r, ["LEGAL_CASE_PENDING", "Legal Case Pending", "legalCasePending", "legal_case_pending"])),
+
+// //       // Keep raw row for safety / future columns
+// //       _raw: r
+// //     };
+// //   });
+
+// //   console.log(`Loaded ${toolsCache.length} rows from tools.csv`);
+// // }
+
+// // await loadData();
+
+// // // Routes
+// // app.get("/", (req, res) => {
+// //   res.send("AI Tools backend is running. Try /api/tools");
+// // });
+
+// // app.get("/api/tools", (req, res) => {
+// //   res.json(toolsCache);
+// // });
+
+// // app.get("/api/health", (req, res) => {
+// //   res.json({ ok: true });
+// // });
+
+// // // Optional hot reload (nice for local dev)
+// // app.post("/api/reload", async (req, res) => {
+// //   try {
+// //     await loadData();
+// //     res.json({ ok: true, rows: toolsCache.length });
+// //   } catch (e) {
+// //     res.status(500).json({ ok: false, error: e.message });
+// //   }
+// // });
+
+// // const port = process.env.PORT || 8080;
+// // app.listen(port, () => {
+// //   console.log(`Backend running on http://localhost:${port}`);
+// // });
+
+
+
 // import express from "express";
 // import cors from "cors";
 // import csv from "csvtojson";
 // import path from "path";
 // import { fileURLToPath } from "url";
+// import mongoose from "mongoose"; // ✅ NEW
 
 // const app = express();
 // app.use(cors());
 // app.use(express.json());
+
+// // ✅ NEW: Mongo connect (runs once on boot)
+// const MONGO_URI = process.env.MONGO_URI;
+// mongoose.connect(MONGO_URI)
+//   .then(() => console.log("✅ Mongo connected"))
+//   .catch(err => console.error("❌ Mongo connection error:", err));
 
 // const __filename = fileURLToPath(import.meta.url);
 // const __dirname = path.dirname(__filename);
@@ -136,24 +282,64 @@
 // });
 
 
-
 import express from "express";
 import cors from "cors";
 import csv from "csvtojson";
 import path from "path";
 import { fileURLToPath } from "url";
-import mongoose from "mongoose"; // ✅ NEW
+import mongoose from "mongoose";
+
+// ✅ NEW for Cognito verify + logging
+import jwt from "jsonwebtoken";
+import jwksClient from "jwks-rsa";
+import LoginLog from "./models/LoginLog.js";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ✅ NEW: Mongo connect (runs once on boot)
+// ✅ Mongo connect (already working)
 const MONGO_URI = process.env.MONGO_URI;
 mongoose.connect(MONGO_URI)
   .then(() => console.log("✅ Mongo connected"))
   .catch(err => console.error("❌ Mongo connection error:", err));
 
+/* ---------------------------
+   ✅ Cognito JWT verification
+---------------------------- */
+const REGION = process.env.COGNITO_REGION;
+const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
+
+const jwks = jwksClient({
+  jwksUri: `https://cognito-idp.${REGION}.amazonaws.com/${USER_POOL_ID}/.well-known/jwks.json`
+});
+
+function getKey(header, callback) {
+  jwks.getSigningKey(header.kid, function (err, key) {
+    const signingKey = key?.getPublicKey();
+    callback(err, signingKey);
+  });
+}
+
+function verifyCognitoToken(token) {
+  return new Promise((resolve, reject) => {
+    jwt.verify(
+      token,
+      getKey,
+      {
+        issuer: `https://cognito-idp.${REGION}.amazonaws.com/${USER_POOL_ID}`
+      },
+      (err, decoded) => {
+        if (err) return reject(err);
+        resolve(decoded);
+      }
+    );
+  });
+}
+
+/* ---------------------------
+   Existing CSV loading logic
+---------------------------- */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -243,7 +429,6 @@ async function loadData() {
       yearCompanyFounded: toNum(pick(r, ["YEAR_COMPANY_FOUNDED", "Year Company Founded", "yearCompanyFounded", "year_company_founded"])),
       legalCasePending: toBool(pick(r, ["LEGAL_CASE_PENDING", "Legal Case Pending", "legalCasePending", "legal_case_pending"])),
 
-      // Keep raw row for safety / future columns
       _raw: r
     };
   });
@@ -253,7 +438,65 @@ async function loadData() {
 
 await loadData();
 
-// Routes
+/* ---------------------------
+   ✅ NEW: Login tracking route
+---------------------------- */
+app.post("/api/track-login", async (req, res) => {
+  try {
+    const auth = req.headers.authorization || "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+    if (!token) return res.status(401).json({ error: "Missing token" });
+
+    const decoded = await verifyCognitoToken(token);
+
+    const email =
+      decoded.email ||
+      decoded["cognito:username"] ||
+      decoded.username;
+
+    if (!email) return res.status(400).json({ error: "No email found in token" });
+
+    const appId = req.body?.appId || "unknown-app";
+
+    const ip =
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.ip;
+
+    const ua = req.headers["user-agent"] || "";
+    const now = new Date();
+
+    const doc = await LoginLog.findOneAndUpdate(
+      { email },
+      {
+        $set: {
+          lastLoginAt: now,
+          lastIp: ip,
+          lastUserAgent: ua,
+          lastAppId: appId
+        },
+        $inc: { loginCount: 1 },
+        $push: {
+          events: { at: now, appId, ip, ua }
+        }
+      },
+      { upsert: true, new: true }
+    );
+
+    res.json({
+      ok: true,
+      email: doc.email,
+      loginCount: doc.loginCount,
+      lastAppId: doc.lastAppId
+    });
+  } catch (e) {
+    console.error("track-login error:", e);
+    res.status(401).json({ error: "Invalid token" });
+  }
+});
+
+/* ---------------------------
+   Existing routes
+---------------------------- */
 app.get("/", (req, res) => {
   res.send("AI Tools backend is running. Try /api/tools");
 });
@@ -266,7 +509,6 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true });
 });
 
-// Optional hot reload (nice for local dev)
 app.post("/api/reload", async (req, res) => {
   try {
     await loadData();
@@ -280,3 +522,4 @@ const port = process.env.PORT || 8080;
 app.listen(port, () => {
   console.log(`Backend running on http://localhost:${port}`);
 });
+
