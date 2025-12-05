@@ -230,12 +230,10 @@ app.get("/api/login-stats", async (req, res) => {
   try {
     const email = String(u.email || "").toLowerCase();
 
-    // lock to internal users
     if (!email.endsWith("@me-dmz.com")) {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    // totals
     const totalLoginsAgg = await LoginLog.aggregate([
       { $group: { _id: null, total: { $sum: "$loginCount" } } }
     ]);
@@ -243,13 +241,11 @@ app.get("/api/login-stats", async (req, res) => {
 
     const uniqueUsers = await LoginLog.countDocuments();
 
-    // top users
     const topUsers = await LoginLog.find({})
       .sort({ loginCount: -1, lastLoginAt: -1 })
       .limit(20)
       .select({ email: 1, loginCount: 1, lastLoginAt: 1, lastAppId: 1 });
 
-    // last 30 days trend
     const since = new Date();
     since.setDate(since.getDate() - 30);
 
@@ -288,11 +284,11 @@ app.get("/api/login-stats", async (req, res) => {
 });
 
 /* ---------------------------
-   ✅ Export route
-   max 10 exports / 24h
+   ✅ Export route (FIXED)
+   max 10 TOOLS per 24h
    max 10 infraIds per export
 ---------------------------- */
-const MAX_EXPORTS_PER_24H = 10;
+const MAX_EXPORTS_PER_24H = 10;  // now means "tool credits"
 const MAX_IDS_PER_EXPORT = 10;
 
 app.post("/api/export", async (req, res) => {
@@ -321,11 +317,27 @@ app.post("/api/export", async (req, res) => {
   // keep only last 24h events
   log.events = log.events.filter(e => e.at >= since);
 
-  if (log.events.length >= MAX_EXPORTS_PER_24H) {
+  // ✅ count TOOLS used in last 24h
+  const toolsUsedLast24h = log.events.reduce(
+    (sum, e) => sum + (e.infraIds?.length || 0),
+    0
+  );
+
+  if (toolsUsedLast24h >= MAX_EXPORTS_PER_24H) {
     return res.status(403).json({
-      error: `Export limit reached (${MAX_EXPORTS_PER_24H} per 24h)`,
-      exportsUsed: log.events.length,
+      error: `Export limit reached (${MAX_EXPORTS_PER_24H} tools per 24h)`,
+      toolsUsed: toolsUsedLast24h,
       exportsLeft: 0
+    });
+  }
+
+  // ✅ block if this export would exceed remaining credits
+  if (toolsUsedLast24h + infraIds.length > MAX_EXPORTS_PER_24H) {
+    const left = MAX_EXPORTS_PER_24H - toolsUsedLast24h;
+    return res.status(403).json({
+      error: `Not enough credits. You have ${left} tool exports left in the last 24h.`,
+      toolsUsed: toolsUsedLast24h,
+      exportsLeft: left
     });
   }
 
@@ -337,10 +349,12 @@ app.post("/api/export", async (req, res) => {
     return infraIds.includes(id);
   });
 
+  // record export event
   log.events.push({ at: now, infraIds, format });
   await log.save();
 
-  const exportsLeft = MAX_EXPORTS_PER_24H - log.events.length;
+  const exportsLeft =
+    MAX_EXPORTS_PER_24H - (toolsUsedLast24h + infraIds.length);
 
   if (format === "csv") {
     const headers = Object.keys(selected[0] || {});
