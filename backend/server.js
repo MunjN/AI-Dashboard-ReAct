@@ -319,6 +319,7 @@ import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
 import jwksClient from "jwks-rsa";
 import LoginLog from "./models/LoginLog.js";
+import ExportLog from "./models/ExportLog.js"; // ✅ NEW
 
 const app = express();
 app.use(cors());
@@ -363,11 +364,41 @@ function verifyCognitoToken(token) {
   });
 }
 
+// helper to get email+decoded from request
+async function requireUser(req, res) {
+  const auth = req.headers.authorization || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  if (!token) {
+    res.status(401).json({ error: "Missing token" });
+    return null;
+  }
+
+  try {
+    const decoded = await verifyCognitoToken(token);
+
+    const email =
+      decoded.email ||
+      decoded["cognito:username"] ||
+      decoded.username;
+
+    if (!email) {
+      res.status(400).json({ error: "No email in token" });
+      return null;
+    }
+
+    return { email, decoded, token };
+  } catch (e) {
+    res.status(401).json({ error: "Invalid token" });
+    return null;
+  }
+}
+
 /* ---------------------------
    Existing CSV loading logic
 ---------------------------- */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
 const DATA_PATH = path.join(__dirname, "data", "tools.csv");
 
 let toolsCache = [];
@@ -456,262 +487,123 @@ async function loadData() {
 
 await loadData();
 
-// helper to get infraId from raw row
-const getInfraId = (row) =>
-  pick(row?._raw || {}, ["INFRA_ID", "Infra ID", "infraId", "infra_id", "ID", "Id"], row.infraName);
-
 /* ---------------------------
    ✅ Login tracking route
-   - also initializes export credits per login session
 ---------------------------- */
 app.post("/api/track-login", async (req, res) => {
+  const u = await requireUser(req, res);
+  if (!u) return;
+
   try {
-    const auth = req.headers.authorization || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-    if (!token) return res.status(401).json({ error: "Missing token" });
+    const { email } = u;
 
-    const decoded = await verifyCognitoToken(token);
-
-    const email =
-      decoded.email ||
-      decoded["cognito:username"] ||
-      decoded.username;
-
-    if (!email) return res.status(400).json({ error: "No email found in token" });
-
-    const authTime = decoded.auth_time || null; // ✅ cognito login session marker
     const appId = req.body?.appId || "unknown-app";
-
     const ip =
       req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
       req.ip;
-
     const ua = req.headers["user-agent"] || "";
     const now = new Date();
 
-    let doc = await LoginLog.findOne({ email });
-
-    if (!doc) doc = new LoginLog({ email, sessions: [] });
-
-    // ✅ init export credits for this session if missing
-    if (authTime != null) {
-      const existing = doc.sessions.find(s => s.authTime === authTime);
-      if (!existing) {
-        doc.sessions.push({ authTime, exportCreditsLeft: 5 });
-      }
-    }
-
-    doc.lastLoginAt = now;
-    doc.lastIp = ip;
-    doc.lastUserAgent = ua;
-    doc.lastAppId = appId;
-    doc.loginCount = (doc.loginCount || 0) + 1;
-
-    doc.events.push({ at: now, appId, ip, ua, authTime });
-
-    await doc.save();
-
-    // credits left for current session (if any)
-    const creditsLeft =
-      authTime != null
-        ? (doc.sessions.find(s => s.authTime === authTime)?.exportCreditsLeft ?? 5)
-        : 5;
+    const doc = await LoginLog.findOneAndUpdate(
+      { email },
+      {
+        $set: {
+          lastLoginAt: now,
+          lastIp: ip,
+          lastUserAgent: ua,
+          lastAppId: appId
+        },
+        $inc: { loginCount: 1 },
+        $push: {
+          events: { at: now, appId, ip, ua }
+        }
+      },
+      { upsert: true, new: true }
+    );
 
     res.json({
       ok: true,
       email: doc.email,
       loginCount: doc.loginCount,
-      lastAppId: doc.lastAppId,
-      exportCreditsLeft: creditsLeft
+      lastAppId: doc.lastAppId
     });
   } catch (e) {
     console.error("track-login error:", e);
-    res.status(401).json({ error: "Invalid token" });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
 /* ---------------------------
-   ✅ NEW: Export endpoint
-   - HARD limits on backend
-   - max 5 rows per export
-   - max 5 credits per login session
+   ✅ NEW Export route
+   limit = 5 exports / 24h
 ---------------------------- */
 app.post("/api/export", async (req, res) => {
-  try {
-    const auth = req.headers.authorization || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-    if (!token) return res.status(401).json({ error: "Missing token" });
+  const u = await requireUser(req, res);
+  if (!u) return;
 
-    const decoded = await verifyCognitoToken(token);
+  const { email } = u;
+  const { infraIds = [], format = "json" } = req.body || {};
 
-    const email =
-      decoded.email ||
-      decoded["cognito:username"] ||
-      decoded.username;
-
-    if (!email) return res.status(400).json({ error: "No email found in token" });
-
-    const authTime = decoded.auth_time || null;
-
-    const infraIds = Array.isArray(req.body?.infraIds) ? req.body.infraIds : [];
-    const format = (req.body?.format || "json").toLowerCase();
-
-    if (!infraIds.length) {
-      return res.status(400).json({ error: "No infraIds provided" });
-    }
-
-    if (infraIds.length > 5) {
-      return res.status(400).json({ error: "Max 5 tools per export" });
-    }
-
-    let doc = await LoginLog.findOne({ email });
-    if (!doc) doc = new LoginLog({ email, sessions: [] });
-
-    // ensure session exists
-    if (authTime != null) {
-      let session = doc.sessions.find(s => s.authTime === authTime);
-      if (!session) {
-        session = { authTime, exportCreditsLeft: 5 };
-        doc.sessions.push(session);
-      }
-
-      if ((session.exportCreditsLeft || 0) < infraIds.length) {
-        return res.status(403).json({
-          error: "Export limit reached for this login",
-          exportCreditsLeft: session.exportCreditsLeft || 0
-        });
-      }
-
-      // decrement credits by number of rows exported
-      session.exportCreditsLeft -= infraIds.length;
-    }
-
-    await doc.save();
-
-    // pull selected rows
-    const selected = toolsCache.filter(r =>
-      infraIds.includes(String(getInfraId(r)))
-    );
-
-    // if some ids not found, still return what we have
-    if (format === "csv") {
-      const cols = [
-        "toolName",
-        "infraName",
-        "parentOrg",
-        "foundationalModel",
-        "modelType",
-        "softwareType",
-        "inferenceLocation",
-        "yearLaunched",
-        "businessModel",
-        "fundingType",
-        "orgMaturity",
-        "ipCreationPotential",
-        "yearCompanyFounded",
-        "hasApi",
-        "legalCasePending"
-      ];
-
-      const header = cols.join(",");
-      const rows = selected.map(r =>
-        cols.map(c => {
-          const val = r[c];
-          const s = val == null ? "" : String(val).replace(/"/g, '""');
-          return `"${s}"`;
-        }).join(",")
-      );
-
-      const csvOut = [header, ...rows].join("\n");
-
-      res.setHeader("Content-Type", "text/csv");
-      res.setHeader("Content-Disposition", `attachment; filename="tools-export.csv"`);
-      return res.send(csvOut);
-    }
-
-    // default json
-    res.json({
-      ok: true,
-      exportCreditsLeft:
-        authTime != null
-          ? (doc.sessions.find(s => s.authTime === authTime)?.exportCreditsLeft ?? 0)
-          : 0,
-      rows: selected
-    });
-  } catch (e) {
-    console.error("export error:", e);
-    res.status(401).json({ error: "Invalid token" });
+  if (!Array.isArray(infraIds) || infraIds.length === 0) {
+    return res.status(400).json({ error: "infraIds required" });
   }
-});
 
-/* ---------------------------
-   ✅ Login stats (ME-DMZ only)
----------------------------- */
-app.get("/api/login-stats", async (req, res) => {
-  try {
-    const auth = req.headers.authorization || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-    if (!token) return res.status(401).json({ error: "Missing token" });
-
-    const decoded = await verifyCognitoToken(token);
-
-    const email =
-      decoded.email ||
-      decoded["cognito:username"] ||
-      decoded.username;
-
-    if (!email) return res.status(400).json({ error: "No email found in token" });
-
-    const ok = String(email).toLowerCase().endsWith("@me-dmz.com");
-    if (!ok) return res.status(403).json({ error: "Forbidden" });
-
-    const totalLoginsAgg = await LoginLog.aggregate([
-      { $group: { _id: null, total: { $sum: "$loginCount" } } }
-    ]);
-    const totalLogins = totalLoginsAgg[0]?.total || 0;
-
-    const uniqueUsers = await LoginLog.countDocuments();
-
-    const topUsers = await LoginLog.find({})
-      .sort({ loginCount: -1, lastLoginAt: -1 })
-      .limit(20)
-      .select({ email: 1, loginCount: 1, lastLoginAt: 1, lastAppId: 1 });
-
-    const since = new Date();
-    since.setDate(since.getDate() - 30);
-
-    const trendAgg = await LoginLog.aggregate([
-      { $unwind: "$events" },
-      { $match: { "events.at": { $gte: since } } },
-      {
-        $group: {
-          _id: {
-            day: {
-              $dateToString: { format: "%Y-%m-%d", date: "$events.at" }
-            }
-          },
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { "_id.day": 1 } }
-    ]);
-
-    const trendLast30Days = trendAgg.map(r => ({
-      day: r._id.day,
-      count: r.count
-    }));
-
-    res.json({
-      ok: true,
-      totalLogins,
-      uniqueUsers,
-      topUsers,
-      trendLast30Days
-    });
-  } catch (e) {
-    console.error("login-stats error:", e);
-    res.status(401).json({ error: "Invalid token" });
+  if (infraIds.length > 10) {
+    return res.status(400).json({ error: "Max 5 infraIds per export" });
   }
+
+  const now = new Date();
+  const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  // load user export log
+  let log = await ExportLog.findOne({ email });
+  if (!log) log = await ExportLog.create({ email, events: [] });
+
+  // keep only last 24h events
+  log.events = log.events.filter(e => e.at >= since);
+
+  if (log.events.length >= 10) {
+    return res.status(403).json({
+      error: "Export limit reached (10 per 24h)",
+      exportsUsed: log.events.length,
+      exportsLeft: 0
+    });
+  }
+
+  // select requested rows
+  const selected = toolsCache.filter(r => {
+    const id =
+      r._raw?.INFRA_ID ||
+      r._raw?.infra_id ||
+      r._raw?.Infra_ID;
+    return infraIds.includes(id);
+  });
+
+  // record export event
+  log.events.push({ at: now, infraIds, format });
+  await log.save();
+
+  const exportsLeft = 5 - log.events.length;
+
+  // respond in requested format
+  if (format === "csv") {
+    const headers = Object.keys(selected[0] || {});
+    const lines = [
+      headers.join(","),
+      ...selected.map(row =>
+        headers.map(h => JSON.stringify(row[h] ?? "")).join(",")
+      )
+    ];
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("X-Exports-Left", String(exportsLeft));
+    return res.send(lines.join("\n"));
+  }
+
+  res.json({
+    ok: true,
+    exportsLeft,
+    rows: selected
+  });
 });
 
 /* ---------------------------
@@ -742,4 +634,6 @@ const port = process.env.PORT || 8080;
 app.listen(port, () => {
   console.log(`Backend running on http://localhost:${port}`);
 });
+
+
 
