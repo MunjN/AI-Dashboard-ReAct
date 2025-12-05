@@ -206,7 +206,7 @@ export default function AdminStats() {
           return;
         }
 
-        const res = await fetch(`${API_BASE}/api/login-stats`, {
+        const res = await fetch(`${API_BASE}/api/track-login`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
