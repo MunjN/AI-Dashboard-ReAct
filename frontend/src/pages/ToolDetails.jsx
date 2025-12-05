@@ -8,6 +8,7 @@ export default function ToolDetails() {
   const { tools, loading, error } = useData();
   const [msg, setMsg] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [creditsLeft, setCreditsLeft] = useState(null); // credits per 24h (per tool)
 
   const tool = useMemo(() => {
     const id = decodeURIComponent(infraId);
@@ -19,6 +20,11 @@ export default function ToolDetails() {
   const exportJSON = async () => {
     if (!tool) return;
     setMsg("");
+
+    if (creditsLeft === 0) {
+      setMsg("You’ve hit your export limit for the last 24 hours.");
+      return;
+    }
 
     const jwt = Cookies.get("idToken");
     if (!jwt) {
@@ -52,18 +58,23 @@ export default function ToolDetails() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
+        if (data.exportsLeft != null) setCreditsLeft(data.exportsLeft);
         setMsg(data.error || "Export failed.");
         return;
       }
 
       const payload = data.rows?.[0] || tool;
+      const left = data.exportsLeft;
+
+      setCreditsLeft(left);
+
       const blob = new Blob(
         [JSON.stringify(payload, null, 2)],
         { type: "application/json" }
       );
       downloadBlob(blob, `${tool.toolName || "tool"}-details.json`);
 
-      setMsg(`Exported. Exports left (24h): ${data.exportsLeft ?? "?"}`);
+      setMsg(`Exported. Credits left (24h): ${left}.`);
     } catch (e) {
       setMsg(e.message || "Export failed.");
     } finally {
@@ -77,7 +88,9 @@ export default function ToolDetails() {
     return (
       <div className="p-6">
         <div className="text-lg font-semibold">Tool not found.</div>
-        <Link to="/details" className="text-blue-700 underline">Back to dashboard</Link>
+        <Link to="/details" className="text-blue-700 underline">
+          Back to dashboard
+        </Link>
       </div>
     );
   }
@@ -87,20 +100,31 @@ export default function ToolDetails() {
   return (
     <div className="min-h-screen bg-slate-50 p-8">
       {/* top bar */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-3">
         <Link to="/details" className="text-blue-700 underline text-sm">
           ← Back to dashboard
         </Link>
 
-        <button
-          onClick={exportJSON}
-          disabled={exporting}
-          className={`px-4 py-2 rounded-lg text-sm font-semibold transition
-            ${exporting ? "bg-blue-200 text-blue-900" : "bg-blue-700 text-white hover:bg-blue-800"}
-          `}
-        >
-          Export JSON
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="text-xs text-blue-900/70">
+            Credits left (24h):{" "}
+            <span className="font-bold text-blue-950">
+              {creditsLeft == null ? "—" : creditsLeft}
+            </span>
+          </div>
+
+          <button
+            onClick={exportJSON}
+            disabled={exporting || creditsLeft === 0}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition
+              ${exporting || creditsLeft === 0
+                ? "bg-blue-200 text-blue-900 cursor-not-allowed"
+                : "bg-blue-700 text-white hover:bg-blue-800"}
+            `}
+          >
+            Export JSON
+          </button>
+        </div>
       </div>
 
       {msg && <div className="text-sm mb-4 text-red-600">{msg}</div>}
@@ -112,13 +136,21 @@ export default function ToolDetails() {
           <Meta label="Infra ID" value={raw.INFRA_ID || raw.infra_id || "—"} />
           <Meta label="Parent Org" value={tool.parentOrg || "—"} />
           <Meta label="Year Launched" value={tool.yearLaunched || "—"} />
-          <Meta label="Website" value={
-            raw.LINK ? (
-              <a className="underline text-blue-700" href={raw.LINK} target="_blank" rel="noreferrer">
-                {raw.LINK}
-              </a>
-            ) : "—"
-          }/>
+          <Meta
+            label="Website"
+            value={
+              raw.LINK ? (
+                <a
+                  className="underline text-blue-700"
+                  href={raw.LINK}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {raw.LINK}
+                </a>
+              ) : "—"
+            }
+          />
         </div>
       </div>
 
@@ -145,13 +177,21 @@ export default function ToolDetails() {
           <Field label="Reason for IP" value={raw.REASON_FOR_IP || "—"} />
           <Field label="Legal Case Pending" value={tool.legalCasePending == null ? "Info Not Public" : (tool.legalCasePending ? "YES" : "NO")} />
           <Field label="Year Company Founded" value={tool.yearCompanyFounded || "—"} />
-          <Field label="EULA Link" value={
-            raw.EULA_LINK ? (
-              <a className="underline text-blue-700" href={raw.EULA_LINK} target="_blank" rel="noreferrer">
-                Open EULA
-              </a>
-            ) : "—"
-          }/>
+          <Field
+            label="EULA Link"
+            value={
+              raw.EULA_LINK ? (
+                <a
+                  className="underline text-blue-700"
+                  href={raw.EULA_LINK}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open EULA
+                </a>
+              ) : "—"
+            }
+          />
         </Section>
       </div>
 
