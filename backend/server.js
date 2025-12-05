@@ -2,29 +2,32 @@ import express from "express";
 import cors from "cors";
 import csv from "csvtojson";
 import path from "path";
+import { fileURLToPath } from "url";
 import mongoose from "mongoose";
-import ExportLog from "./models/ExportLog.js";
-import LoginLog from "./models/LoginLog.js";
+
 import jwt from "jsonwebtoken";
 import jwksClient from "jwks-rsa";
-import { fileURLToPath } from "url";
+import LoginLog from "./models/LoginLog.js";
+import ExportLog from "./models/ExportLog.js";
 
-// ✅ FIX: dotenv is optional. Render doesn't need it, and if it's not installed,
-// we just skip loading without crashing.
-try {
-  const dotenv = await import("dotenv");
-  dotenv.default.config();
-  console.log("dotenv loaded");
-} catch (e) {
-  console.log("dotenv not installed, skipping .env load");
-}
+const app = express();
+app.use(cors());
+app.use(express.json());
 
+// ✅ Mongo connect
+const MONGO_URI = process.env.MONGO_URI;
+mongoose.connect(MONGO_URI)
+  .then(() => console.log("✅ Mongo connected"))
+  .catch(err => console.error("❌ Mongo connection error:", err));
+
+/* ---------------------------
+   ✅ Cognito JWT verification
+---------------------------- */
 const REGION = process.env.COGNITO_REGION;
 const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
-const CLIENT_ID = process.env.COGNITO_CLIENT_ID;
 
 const jwks = jwksClient({
-  jwksUri: `https://cognito-idp.${REGION}.amazonaws.com/${USER_POOL_ID}/.well-known/jwks.json`,
+  jwksUri: `https://cognito-idp.${REGION}.amazonaws.com/${USER_POOL_ID}/.well-known/jwks.json`
 });
 
 function getKey(header, callback) {
@@ -39,10 +42,7 @@ function verifyCognitoToken(token) {
     jwt.verify(
       token,
       getKey,
-      {
-        issuer: `https://cognito-idp.${REGION}.amazonaws.com/${USER_POOL_ID}`,
-        audience: CLIENT_ID,
-      },
+      { issuer: `https://cognito-idp.${REGION}.amazonaws.com/${USER_POOL_ID}` },
       (err, decoded) => {
         if (err) return reject(err);
         resolve(decoded);
@@ -51,6 +51,7 @@ function verifyCognitoToken(token) {
   });
 }
 
+// helper to get email+decoded from request
 async function requireUser(req, res) {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
@@ -79,6 +80,9 @@ async function requireUser(req, res) {
   }
 }
 
+/* ---------------------------
+   Existing CSV loading logic
+---------------------------- */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -93,10 +97,16 @@ const toList = (v) => {
   const s = String(v).trim();
   if (!s) return [];
 
-  return s
-    .split(/[,|;]/)
-    .map((x) => x.trim())
-    .filter(Boolean);
+  if (s.startsWith("[") && s.endsWith("]")) {
+    try {
+      const arr = JSON.parse(s);
+      if (Array.isArray(arr)) {
+        return arr.map(x => String(x).trim()).filter(Boolean);
+      }
+    } catch {}
+  }
+
+  return s.split(/[,|;]/).map(x => x.trim()).filter(Boolean);
 };
 
 const toBool = (v) => {
@@ -122,101 +132,64 @@ const pick = (row, keys, fallback = null) => {
 async function loadData() {
   const rows = await csv().fromFile(DATA_PATH);
 
-  toolsCache = rows.map((row) => {
-    const orgId = pick(row, ["ORG_ID", "org_id", "Org ID"]);
-    const orgName = pick(row, [
-      "ORG_NAME",
-      "org_name",
-      "Organization",
-      "Org Name",
-    ]);
-    const hqCountry = pick(row, ["HQ_COUNTRY", "hq_country", "Country"]);
-    const foundedYear = toNum(
-      pick(row, ["FOUNDED_YEAR", "founded_year", "Founded"])
+  toolsCache = rows.map((r) => {
+    const toolName = pick(r, ["NAME", "Tool Name", "toolName", "tool_name", "Name"]);
+    const infraName = pick(
+      r,
+      ["INFRA_NAME", "Infra Name", "infraName", "infra_name", "NAME", "Tool Name"],
+      toolName
     );
-    const employeeCount = toNum(
-      pick(row, ["EMPLOYEE_COUNT", "employee_count"])
+    const parentOrg = pick(
+      r,
+      ["PARENT_ORGANIZATION", "Parent Org", "parentOrg", "parent_org", "Provider Org"]
     );
-    const orgSizing = pick(row, [
-      "ORG_SIZING",
-      "org_sizing",
-      "Sizing",
-    ]);
-
-    const infra = toList(
-      pick(row, ["INFRA_NAME", "infra_name", "Infrastructure"])
-    );
-    const services = toList(pick(row, ["SERVICES", "services"]));
-    const contentTypes = toList(
-      pick(row, ["CONTENT_TYPES", "content_types"])
-    );
-
-    const isVendor = toBool(pick(row, ["IS_VENDOR", "is_vendor"]));
-    const isCreator = toBool(pick(row, ["IS_CREATOR", "is_creator"]));
 
     return {
-      orgId,
-      orgName,
-      hqCountry,
-      foundedYear,
-      employeeCount,
-      orgSizing,
-      infra,
-      services,
-      contentTypes,
-      isVendor,
-      isCreator,
-      raw: row,
+      toolName,
+      infraName,
+      tasks: toList(pick(r, ["TASKS", "Tasks", "tasks"])),
+      softwareType: pick(r, ["SOFTWARE_TYPE", "Software Type", "softwareType", "software_type"]),
+      expectedInput: toList(pick(r, ["EXPECTED_INPUT", "Expected Input", "expectedInput", "expected_input"])),
+      generatedOutput: toList(pick(r, ["GENERATED_OUTPUT", "Generated Output", "generatedOutput", "generated_output"])),
+      modelType: pick(r, ["MODEL_PRIVATE_OR_PUBLIC", "Model Type", "modelType", "model_type"]),
+      foundationalModel: pick(r, ["FOUNDATIONAL_MODEL", "Foundational Model", "foundationalModel", "foundational_model"]),
+      inferenceLocation: pick(r, ["INFERENCE_LOCATION", "Inference Location", "inferenceLocation", "inference_location"]),
+      hasApi: toBool(pick(r, ["HAS_API", "Has API", "hasApi", "has_api"])),
+      yearLaunched: toNum(pick(r, ["YEAR_LAUNCHED", "Year Launched", "yearLaunched", "year_launched"])),
+
+      parentOrg,
+      orgMaturity: pick(r, ["ORGANIZATION_MATURITY", "Org Maturity", "orgMaturity", "org_maturity", "Maturity"]),
+      fundingType: pick(r, ["FUNDING", "Funding", "fundingType", "funding_type", "Funding Type"]),
+      businessModel: pick(r, ["BUSINESS_MODEL", "Business Model", "businessModel", "business_model"]),
+      ipCreationPotential: pick(r, ["POTENTIAL_FOR_IP", "Potential for IP Creation", "ipCreationPotential", "ip_creation_potential"]),
+      yearCompanyFounded: toNum(pick(r, ["YEAR_COMPANY_FOUNDED", "Year Company Founded", "yearCompanyFounded", "year_company_founded"])),
+      legalCasePending: toBool(pick(r, ["LEGAL_CASE_PENDING", "Legal Case Pending", "legalCasePending", "legal_case_pending"])),
+
+      _raw: r
     };
   });
+
+  console.log(`Loaded ${toolsCache.length} rows from tools.csv`);
 }
 
-const app = express();
-
-app.use(
-  cors({
-    origin: [
-      "http://localhost:5173",
-      "https://ai-dashboard-react.netlify.app",
-      "https://ai-dashboard-react.onrender.com",
-    ],
-    credentials: true,
-  })
-);
-
-app.use(express.json());
-
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB connected"))
-  .catch((err) => console.error("MongoDB error:", err));
+await loadData();
 
 /* ---------------------------
-   ✅ Login tracking route (POST)
+   ✅ Login tracking route
 ---------------------------- */
 app.post("/api/track-login", async (req, res) => {
+  const u = await requireUser(req, res);
+  if (!u) return;
+
   try {
-    const auth = req.headers.authorization || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-    if (!token) return res.status(401).json({ error: "Missing token" });
+    const { email } = u;
 
-    const decoded = await verifyCognitoToken(token);
-    const email =
-      decoded.email ||
-      decoded["cognito:username"] ||
-      decoded.username;
-
-    if (!email) {
-      return res.status(400).json({ error: "No email in token" });
-    }
-
-    const now = new Date();
-    const appId = req.body?.appId || "unknown";
+    const appId = req.body?.appId || "unknown-app";
     const ip =
-      req.headers["x-forwarded-for"] ||
-      req.socket.remoteAddress ||
-      "";
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.ip;
     const ua = req.headers["user-agent"] || "";
+    const now = new Date();
 
     const doc = await LoginLog.findOneAndUpdate(
       { email },
@@ -225,12 +198,12 @@ app.post("/api/track-login", async (req, res) => {
           lastLoginAt: now,
           lastIp: ip,
           lastUserAgent: ua,
-          lastAppId: appId,
+          lastAppId: appId
         },
         $inc: { loginCount: 1 },
         $push: {
-          events: { at: now, appId, ip, ua },
-        },
+          events: { at: now, appId, ip, ua }
+        }
       },
       { upsert: true, new: true }
     );
@@ -239,7 +212,7 @@ app.post("/api/track-login", async (req, res) => {
       ok: true,
       email: doc.email,
       loginCount: doc.loginCount,
-      lastAppId: doc.lastAppId,
+      lastAppId: doc.lastAppId
     });
   } catch (e) {
     console.error("track-login error:", e);
@@ -248,31 +221,37 @@ app.post("/api/track-login", async (req, res) => {
 });
 
 /* ---------------------------
-   ✅ Login stats (GET)
+   ✅ Login stats (ME-DMZ only)
 ---------------------------- */
 app.get("/api/login-stats", async (req, res) => {
-  const user = await requireUser(req, res);
-  if (!user) return;
-
-  if (!String(user.email).toLowerCase().endsWith("@fx-dmz.com")) {
-    return res.status(403).json({ error: "Forbidden" });
-  }
+  const u = await requireUser(req, res);
+  if (!u) return;
 
   try {
+    const email = String(u.email || "").toLowerCase();
+
+    // lock to internal users
+    if (!email.endsWith("@me-dmz.com")) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    // totals
     const totalLoginsAgg = await LoginLog.aggregate([
-      { $group: { _id: null, total: { $sum: "$loginCount" } } },
+      { $group: { _id: null, total: { $sum: "$loginCount" } } }
     ]);
     const totalLogins = totalLoginsAgg[0]?.total || 0;
 
-    const uniqueUsers = await LoginLog.countDocuments({});
+    const uniqueUsers = await LoginLog.countDocuments();
 
+    // top users
     const topUsers = await LoginLog.find({})
-      .sort({ loginCount: -1 })
-      .limit(10)
-      .select({ email: 1, loginCount: 1, lastLoginAt: 1 })
-      .lean();
+      .sort({ loginCount: -1, lastLoginAt: -1 })
+      .limit(20)
+      .select({ email: 1, loginCount: 1, lastLoginAt: 1, lastAppId: 1 });
 
-    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    // last 30 days trend
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
 
     const trendAgg = await LoginLog.aggregate([
       { $unwind: "$events" },
@@ -280,20 +259,19 @@ app.get("/api/login-stats", async (req, res) => {
       {
         $group: {
           _id: {
-            $dateToString: {
-              format: "%Y-%m-%d",
-              date: "$events.at",
-            },
+            day: {
+              $dateToString: { format: "%Y-%m-%d", date: "$events.at" }
+            }
           },
-          count: { $sum: 1 },
-        },
+          count: { $sum: 1 }
+        }
       },
-      { $sort: { _id: 1 } },
+      { $sort: { "_id.day": 1 } }
     ]);
 
-    const trendLast30Days = trendAgg.map((r) => ({
-      day: r._id,
-      count: r.count,
+    const trendLast30Days = trendAgg.map(r => ({
+      day: r._id.day,
+      count: r.count
     }));
 
     res.json({
@@ -301,7 +279,7 @@ app.get("/api/login-stats", async (req, res) => {
       totalLogins,
       uniqueUsers,
       topUsers,
-      trendLast30Days,
+      trendLast30Days
     });
   } catch (e) {
     console.error("login-stats error:", e);
@@ -310,74 +288,85 @@ app.get("/api/login-stats", async (req, res) => {
 });
 
 /* ---------------------------
-   Export tracking / credits
+   ✅ Export route
+   max 10 exports / 24h
+   max 10 infraIds per export
 ---------------------------- */
-app.post("/api/export", async (req, res) => {
-  const user = await requireUser(req, res);
-  if (!user) return;
+const MAX_EXPORTS_PER_24H = 10;
+const MAX_IDS_PER_EXPORT = 10;
 
-  const { email, decoded } = user;
-  const infraIds = req.body?.infraIds;
+app.post("/api/export", async (req, res) => {
+  const u = await requireUser(req, res);
+  if (!u) return;
+
+  const { email } = u;
+  const { infraIds = [], format = "json" } = req.body || {};
 
   if (!Array.isArray(infraIds) || infraIds.length === 0) {
     return res.status(400).json({ error: "infraIds required" });
   }
 
-  if (infraIds.length > 10) {
-    return res.status(400).json({ error: "Max 5 infraIds per export" });
+  if (infraIds.length > MAX_IDS_PER_EXPORT) {
+    return res.status(400).json({
+      error: `Max ${MAX_IDS_PER_EXPORT} infraIds per export`
+    });
   }
 
   const now = new Date();
   const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
   let log = await ExportLog.findOne({ email });
-  if (!log) log = await ExportLog.create({ email, events: [], sessions: [] });
+  if (!log) log = await ExportLog.create({ email, events: [] });
 
-  const recentExports = log.events.filter((e) => e.at >= since).length;
-  if (recentExports >= 5) {
-    return res.status(429).json({ error: "Daily export limit reached" });
+  // keep only last 24h events
+  log.events = log.events.filter(e => e.at >= since);
+
+  if (log.events.length >= MAX_EXPORTS_PER_24H) {
+    return res.status(403).json({
+      error: `Export limit reached (${MAX_EXPORTS_PER_24H} per 24h)`,
+      exportsUsed: log.events.length,
+      exportsLeft: 0
+    });
   }
 
-  const authTime = decoded?.auth_time;
-  if (!authTime) {
-    return res.status(400).json({ error: "Missing auth_time in token" });
-  }
-
-  const sessionIdx = log.sessions.findIndex(
-    (s) => s.authTime === authTime
-  );
-  if (sessionIdx === -1) {
-    log.sessions.push({ authTime, exportCreditsLeft: 5 });
-  }
-
-  const session = log.sessions.find((s) => s.authTime === authTime);
-
-  if (!session || session.exportCreditsLeft <= 0) {
-    return res
-      .status(429)
-      .json({ error: "No export credits left for this session" });
-  }
-
-  session.exportCreditsLeft -= 1;
-
-  log.events.push({
-    at: now,
-    infraIds,
+  const selected = toolsCache.filter(r => {
+    const id =
+      r._raw?.INFRA_ID ||
+      r._raw?.infra_id ||
+      r._raw?.Infra_ID;
+    return infraIds.includes(id);
   });
 
+  log.events.push({ at: now, infraIds, format });
   await log.save();
+
+  const exportsLeft = MAX_EXPORTS_PER_24H - log.events.length;
+
+  if (format === "csv") {
+    const headers = Object.keys(selected[0] || {});
+    const lines = [
+      headers.join(","),
+      ...selected.map(row =>
+        headers.map(h => JSON.stringify(row[h] ?? "")).join(",")
+      )
+    ];
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("X-Exports-Left", String(exportsLeft));
+    return res.send(lines.join("\n"));
+  }
 
   res.json({
     ok: true,
-    exportCreditsLeft: session.exportCreditsLeft,
+    exportsLeft,
+    rows: selected
   });
 });
 
 /* ---------------------------
-   Static + data endpoints
+   Existing routes
 ---------------------------- */
 app.get("/", (req, res) => {
-  res.send("AI Dashboard backend ok");
+  res.send("AI Tools backend is running. Try /api/tools");
 });
 
 app.get("/api/tools", (req, res) => {
@@ -398,16 +387,6 @@ app.post("/api/reload", async (req, res) => {
 });
 
 const port = process.env.PORT || 8080;
-
-loadData()
-  .then(() => {
-    app.listen(port, () => {
-      console.log(`Backend running on http://localhost:${port}`);
-    });
-  })
-  .catch((e) => {
-    console.error("Failed loading CSV data:", e);
-    app.listen(port, () => {
-      console.log(`Backend running on http://localhost:${port}`);
-    });
-  });
+app.listen(port, () => {
+  console.log(`Backend running on http://localhost:${port}`);
+});
