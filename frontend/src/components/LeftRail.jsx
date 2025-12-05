@@ -1,4 +1,5 @@
 // import { Link, useLocation } from "react-router-dom";
+// import { useAuth } from "../context/AuthContext.jsx";
 
 // export default function LeftRail({
 //   // old props (from your working app)
@@ -13,6 +14,15 @@
 // }) {
 //   const location = useLocation();
 //   const path = location.pathname;
+
+//   const { user } = useAuth();
+//   const email =
+//     user?.email ||
+//     user?.["cognito:username"] ||
+//     user?.username ||
+//     "";
+
+//   const isInternal = String(email).toLowerCase().endsWith("@me-dmz.com");
 
 //   const navItem = (to, label) => {
 //     const active = path === to;
@@ -112,31 +122,41 @@
 
 //       <div className="flex-1" />
 
-//       <div className="text-xs opacity-70">
-//         Presented by ME-DMZ
+//       {/* Footer + subtle stats icon */}
+//       <div className="flex items-center justify-between text-xs opacity-70">
+//         <span>Presented by ME-DMZ</span>
+
+//         {isInternal && (
+//           <Link
+//             to="/stats"
+//             title="Usage stats (internal)"
+//             className="text-sm opacity-60 hover:opacity-100 transition"
+//           >
+//             📊
+//           </Link>
+//         )}
 //       </div>
 //     </aside>
 //   );
 // }
 
+
+
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 
 export default function LeftRail({
-  // old props (from your working app)
   infraCount,
   parentOrgCount,
   onSwitchView,
   viewLabel,
-
-  // new props
   onOpenFilters,
   onOpenBookmarks
 }) {
   const location = useLocation();
   const path = location.pathname;
+  const { user, signOut } = useAuth();
 
-  const { user } = useAuth();
   const email =
     user?.email ||
     user?.["cognito:username"] ||
@@ -168,7 +188,6 @@ export default function LeftRail({
         flex flex-col p-4 gap-4
       "
     >
-      {/* Brand */}
       <div className="mb-2">
         <a href="https://me-dmz.com" target="_blank" rel="noreferrer">
           <div className="text-xl font-bold tracking-wide">ME-DMZ</div>
@@ -176,7 +195,6 @@ export default function LeftRail({
         </a>
       </div>
 
-      {/* Counts (only if provided) */}
       {(infraCount != null || parentOrgCount != null) && (
         <div className="flex flex-col gap-3 mt-2">
           {infraCount != null && (
@@ -194,13 +212,11 @@ export default function LeftRail({
         </div>
       )}
 
-      {/* Nav */}
       <div className="flex flex-col gap-2 mt-4">
         {navItem("/details", "Details")}
         {navItem("/overview", "Overview")}
       </div>
 
-      {/* Primary actions */}
       <div className="mt-3 flex flex-col gap-2">
         <button
           onClick={onOpenFilters}
@@ -222,7 +238,6 @@ export default function LeftRail({
           ⭐ Bookmarks
         </button>
 
-        {/* Switch View (only if provided) */}
         {onSwitchView && (
           <button
             onClick={onSwitchView}
@@ -239,11 +254,22 @@ export default function LeftRail({
             )}
           </button>
         )}
+
+        {/* ✅ subtle sign out */}
+        <button
+          onClick={signOut}
+          className="
+            w-full px-4 py-3 rounded-xl font-semibold text-left
+            bg-white/5 hover:bg-white/15 transition
+          "
+          title="Sign out"
+        >
+          🚪 Sign Out
+        </button>
       </div>
 
       <div className="flex-1" />
 
-      {/* Footer + subtle stats icon */}
       <div className="flex items-center justify-between text-xs opacity-70">
         <span>Presented by ME-DMZ</span>
 
@@ -260,4 +286,3 @@ export default function LeftRail({
     </aside>
   );
 }
-
