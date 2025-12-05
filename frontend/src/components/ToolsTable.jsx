@@ -22,6 +22,19 @@ export default function ToolsTable({ rows = [], view = "tech" }) {
       .filter(Boolean);
   }, [rows]);
 
+  // How many we can select on this page (cap to 10)
+  const cappedIdsOnPage = useMemo(
+    () => allIdsOnPage.slice(0, MAX_SELECT),
+    [allIdsOnPage]
+  );
+
+  // Are we currently selecting "all we can" on this page?
+  const isSelectingAllCapped = useMemo(() => {
+    if (!cappedIdsOnPage.length) return false;
+    if (selectedIds.length !== cappedIdsOnPage.length) return false;
+    return cappedIdsOnPage.every(id => selectedIds.includes(id));
+  }, [selectedIds, cappedIdsOnPage]);
+
   const toggleOne = (id) => {
     setMsg("");
     setSelectedIds(prev => {
@@ -38,20 +51,40 @@ export default function ToolsTable({ rows = [], view = "tech" }) {
 
   const toggleAll = () => {
     setMsg("");
+
     setSelectedIds(prev => {
-      if (prev.length === allIdsOnPage.length) return [];
-      return allIdsOnPage.slice(0, MAX_SELECT);
+      // if we already selected the capped set, clicking again clears
+      if (isSelectingAllCapped) return [];
+
+      // otherwise select first MAX_SELECT
+      return cappedIdsOnPage;
     });
 
-    if (allIdsOnPage.length > MAX_SELECT) {
+    if (allIdsOnPage.length > MAX_SELECT && !isSelectingAllCapped) {
       setMsg(`Select All grabbed the first ${MAX_SELECT} results (export cap).`);
     }
   };
 
   async function exportSelected() {
     setMsg("");
+
     if (!selectedIds.length) {
       setMsg("Select at least one tool first.");
+      return;
+    }
+
+    // UI-side cap (extra safety)
+    if (selectedIds.length > MAX_SELECT) {
+      setMsg(`You can only export up to ${MAX_SELECT} tools at a time.`);
+      return;
+    }
+
+    // Credits are now PER TOOL, not per request
+    if (creditsLeft != null && selectedIds.length > creditsLeft) {
+      setMsg(
+        `You only have ${creditsLeft} export credits left in the last 24h. ` +
+        `Reduce selection to ${creditsLeft} or fewer.`
+      );
       return;
     }
 
@@ -67,6 +100,7 @@ export default function ToolsTable({ rows = [], view = "tech" }) {
     }
 
     setExporting(true);
+
     try {
       const res = await fetch(
         `${import.meta.env.VITE_API_BASE}/api/export`,
@@ -86,14 +120,15 @@ export default function ToolsTable({ rows = [], view = "tech" }) {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setCreditsLeft(data.exportsLeft ?? 0);
+        // backend may return exportsLeft even on errors
+        if (data.exportsLeft != null) setCreditsLeft(data.exportsLeft);
         setMsg(data.error || "Export failed.");
         return;
       }
 
-      // backend returns { ok:true, exportsLeft, rows:[...] }
       const exportedRows = data.rows || [];
       const left = data.exportsLeft;
+
       setCreditsLeft(left);
 
       // download json
@@ -103,7 +138,9 @@ export default function ToolsTable({ rows = [], view = "tech" }) {
       );
       downloadBlob(blob, `ai-tools-export-${Date.now()}.json`);
 
-      setMsg(`Exported ${exportedRows.length} tools. Exports left (24h): ${left}.`);
+      setMsg(
+        `Exported ${exportedRows.length} tools. Credits left (24h): ${left}.`
+      );
       setSelectedIds([]);
     } catch (e) {
       setMsg(e.message || "Export failed.");
@@ -121,7 +158,7 @@ export default function ToolsTable({ rows = [], view = "tech" }) {
             onClick={toggleAll}
             className="px-2 py-1 rounded-md border text-blue-900 hover:bg-blue-50"
           >
-            {selectedIds.length === allIdsOnPage.length ? "Clear All" : "Select All"}
+            {isSelectingAllCapped ? "Clear All" : "Select All"}
           </button>
 
           <div className="text-blue-900/80">
@@ -129,7 +166,7 @@ export default function ToolsTable({ rows = [], view = "tech" }) {
           </div>
 
           <div className="text-blue-900/60">
-            Exports left (24h):{" "}
+            Credits left (24h):{" "}
             <b>{creditsLeft == null ? "—" : creditsLeft}</b>
           </div>
         </div>
@@ -138,7 +175,9 @@ export default function ToolsTable({ rows = [], view = "tech" }) {
           onClick={exportSelected}
           disabled={exporting}
           className={`px-4 py-2 rounded-lg text-sm font-semibold transition
-            ${exporting ? "bg-blue-200 text-blue-900" : "bg-blue-700 text-white hover:bg-blue-800"}
+            ${exporting
+              ? "bg-blue-200 text-blue-900"
+              : "bg-blue-700 text-white hover:bg-blue-800"}
           `}
         >
           Export JSON
