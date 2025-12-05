@@ -8,9 +8,16 @@ import LoginLog from "./models/LoginLog.js";
 import jwt from "jsonwebtoken";
 import jwksClient from "jwks-rsa";
 import { fileURLToPath } from "url";
-import dotenv from "dotenv";
 
-dotenv.config();
+// ✅ FIX: dotenv is optional. Render doesn't need it, and if it's not installed,
+// we just skip loading without crashing.
+try {
+  const dotenv = await import("dotenv");
+  dotenv.default.config();
+  console.log("dotenv loaded");
+} catch (e) {
+  console.log("dotenv not installed, skipping .env load");
+}
 
 const REGION = process.env.COGNITO_REGION;
 const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
@@ -164,7 +171,7 @@ async function loadData() {
   });
 }
 
-const app = express(); // ✅ FIX: app defined before routes
+const app = express();
 
 app.use(
   cors({
@@ -247,7 +254,6 @@ app.get("/api/login-stats", async (req, res) => {
   const user = await requireUser(req, res);
   if (!user) return;
 
-  // Optional company-only lock
   if (!String(user.email).toLowerCase().endsWith("@fx-dmz.com")) {
     return res.status(403).json({ error: "Forbidden" });
   }
